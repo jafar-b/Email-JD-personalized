@@ -12,6 +12,7 @@ from datetime import date
 from typing import Optional
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 # ── Page config (must be the very first Streamlit call) ────────────────────────
 st.set_page_config(
@@ -335,6 +336,85 @@ def extract_email_from_text(text: str) -> Optional[str]:
     return matches[0] if matches else None
 
 
+def st_copy_button(text_to_copy: str, label: str, key: str):
+    """Generates a styled, functional inline copy-to-clipboard button using JS."""
+    # Clean up formatting for JS string literal safety
+    escaped = (
+        text_to_copy
+        .replace("\\", "\\\\")
+        .replace("'", "\\'")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+    )
+    
+    html_code = f"""
+    <div style="margin: 0; padding: 0; display: inline-block; vertical-align: middle;">
+        <button id="btn-{key}" style="
+            background: linear-gradient(135deg, #1e293b, #0f172a);
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            border-radius: 6px;
+            color: #e2e8f0;
+            padding: 5px 10px;
+            font-family: 'Inter', sans-serif;
+            font-size: 11px;
+            font-weight: 500;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            transition: all 0.2s ease;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        ">
+            <span style="font-size: 11px;">📋</span> {label}
+        </button>
+    </div>
+    <script>
+    const btn = document.getElementById('btn-{key}');
+    btn.addEventListener('click', function() {{
+        const text = "{escaped}";
+        if (navigator.clipboard && navigator.clipboard.writeText) {{
+            navigator.clipboard.writeText(text)
+                .then(() => showSuccess())
+                .catch(() => fallbackCopy(text));
+        }} else {{
+            fallbackCopy(text);
+        }}
+    }});
+    
+    function fallbackCopy(text) {{
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        try {{
+            document.execCommand('copy');
+            showSuccess();
+        }} catch (err) {{
+            console.error('Failed to copy', err);
+        }}
+        document.body.removeChild(ta);
+    }}
+    
+    function showSuccess() {{
+        btn.innerHTML = '<span>✅</span> Copied!';
+        btn.style.background = 'linear-gradient(135deg, #065f46, #064e3b)';
+        btn.style.borderColor = 'rgba(52, 211, 153, 0.4)';
+        btn.style.color = '#34d399';
+        setTimeout(() => {{
+            btn.innerHTML = '<span style="font-size: 11px;">📋</span> {label}';
+            btn.style.background = 'linear-gradient(135deg, #1e293b, #0f172a)';
+            btn.style.borderColor = 'rgba(56, 189, 248, 0.25)';
+            btn.style.color = '#e2e8f0';
+        }}, 1800);
+    }}
+    </script>
+    """
+    components.html(html_code, height=30)
+
+
 # ── Gemini EmailSession ────────────────────────────────────────────────────────
 class EmailSession:
     """Manages a Gemini chat with automatic model fallback."""
@@ -634,29 +714,38 @@ if st.session_state.emails:
 
     st.markdown('<div class="section-label">Generated Email</div>', unsafe_allow_html=True)
 
-    st.markdown(
-        f"<span style='color:#334155;font-size:0.72rem;'>Model</span>"
-        f"<span class='model-tag'>{session.last_used_model}</span>",
-        unsafe_allow_html=True,
-    )
+    # Layout model name and copy button in a single row
+    col_meta, col_copy = st.columns([2, 1])
+    with col_meta:
+        st.markdown(
+            f"<div style='margin-top: 0.15rem;'>"
+            f"<span style='color:#334155;font-size:0.72rem; vertical-align: middle;'>Model</span>"
+            f"<span class='model-tag'>{session.last_used_model}</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    with col_copy:
+        st_copy_button(latest_email, "Copy Email", "email_text")
 
     # Email card
     email_html = render_email_html(latest_email)
     st.markdown(f'<div class="email-card">{email_html}</div>', unsafe_allow_html=True)
 
-    # Recipient highlight
+    # Recipient highlight with its own copy button
     recipient = extract_email_from_text(latest_email)
     if recipient:
-        st.markdown(
-            f"<div class='recipient-row'>"
-            f"📬 <b style='color:#34d399;'>Recipient:</b>&nbsp;"
-            f"<code style='background:#0c1830;padding:0.18rem 0.5rem;"
-            f"border-radius:4px;color:#34d399;font-size:0.82rem;'>{recipient}</code>"
-            f"&nbsp;<span style='color:#334155;font-size:0.75rem;'>"
-            f"— paste into Gmail's To: field</span>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
+        col_recip, col_recip_copy = st.columns([2, 1])
+        with col_recip:
+            st.markdown(
+                f"<div class='recipient-row' style='margin-top:0.4rem;'>"
+                f"📬 <b style='color:#34d399;'>Recipient:</b>&nbsp;"
+                f"<code style='background:#0c1830;padding:0.18rem 0.5rem;"
+                f"border-radius:4px;color:#34d399;font-size:0.82rem;'>{recipient}</code>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        with col_recip_copy:
+            st_copy_button(recipient, "Copy Email Address", "recipient_email")
 
     # Copy section
     with st.expander("📋  Copy email text"):
