@@ -73,7 +73,6 @@ HELP_TEXT = f"""
 """
 
 CONTACT_BLOCK = """Regards,
-
 Jafar Beldar
 +91 7262067842
 beldarjafar@gmail.com
