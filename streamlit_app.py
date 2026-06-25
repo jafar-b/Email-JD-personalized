@@ -242,7 +242,6 @@ div.stSpinner > div { border-top-color: #38bdf8 !important; }
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 CONTACT_BLOCK = """Regards,
-
 Jafar Beldar
 +91 7262067842
 beldarjafar@gmail.com
