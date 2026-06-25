@@ -62,12 +62,10 @@ header { background: transparent !important; }
     max-width: 800px !important;
 }
 
-/* ── Sidebar ── */
-[data-testid="stSidebar"] {
-    background: linear-gradient(160deg, #06091a 0%, #0c1830 60%, #08122a 100%);
-    border-right: 1px solid #1a2e50;
+/* Hide Sidebar entirely */
+[data-testid="stSidebar"], [data-testid="stSidebarCollapseButton"], button[data-testid="stHeaderCollapseButton"] {
+    display: none !important;
 }
-[data-testid="stSidebarContent"] { padding: 1.2rem 1rem 2rem; }
 
 .app-brand {
     text-align: center;
@@ -676,156 +674,41 @@ for _k, _v in _DEFAULTS.items():
         st.session_state[_k] = _v
 
 
-# ── Sidebar ────────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("""
-    <div class="app-brand">
-        <div class="icon">✉️</div>
-        <h2>Job Email Composer</h2>
-        <div class="powered">Powered by Google Gemini</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # ── API Key (env → Streamlit secrets → manual input) ──────────────────────
-    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not api_key:
-        try:
-            api_key = st.secrets.get("GEMINI_API_KEY", "")
-        except Exception:
-            pass
-    if not api_key:
-        st.markdown('<div class="sb-label">Gemini API Key</div>', unsafe_allow_html=True)
-        typed_key = st.text_input(
-            "api_key_field",
-            type="password",
-            placeholder="AIza...",
-            label_visibility="collapsed",
-        )
-        if typed_key:
-            api_key = typed_key
-    st.session_state.api_key = api_key
-
-    # Helper to process file content and update session state
-    def load_resume(uploaded_file):
-        if uploaded_file is not None and uploaded_file.name != st.session_state.resume_name:
-            file_name = uploaded_file.name
-            file_ext = file_name.split(".")[-1].lower()
-            
-            # Reset existing resume values
-            st.session_state.resume_name   = file_name
-            st.session_state.resume_text   = None
-            st.session_state.resume_image_bytes = None
-            st.session_state.resume_image_mime = None
-            st.session_state.email_session = None   # reset Gemini session
-            st.session_state.emails        = []
-            st.session_state.saved_jd      = ""
-            
-            if file_ext == "pdf":
-                raw_bytes = uploaded_file.read()
-                with st.spinner("Reading PDF…"):
-                    try:
-                        text = extract_pdf_text(raw_bytes)
-                        if not text.strip():
-                            st.error("No text found — is this a scanned image PDF?")
-                        else:
-                            st.session_state.resume_text = text
-                            st.toast("✅ Resume PDF loaded!", icon="📄")
-                            st.rerun()
-                    except Exception as exc:
-                        st.error(f"PDF error: {exc}")
-            elif file_ext in ["png", "jpg", "jpeg"]:
-                st.session_state.resume_image_bytes = uploaded_file.read()
-                st.session_state.resume_image_mime = uploaded_file.type
-                st.toast("✅ Resume image loaded!", icon="📸")
-                st.rerun()
-            else:
-                st.error("Unsupported file format. Please upload a PDF or an Image.")
-
-    # ── Resume uploader ────────────────────────────────────────────────────────
-    st.markdown('<div class="sb-label">📄 Resume (PDF / Image / Text)</div>', unsafe_allow_html=True)
-
-    uploaded_sidebar = st.file_uploader(
-        "resume_upload_sb",
-        type=["pdf", "png", "jpg", "jpeg"],
-        label_visibility="collapsed",
-        key="sidebar_uploader",
-        help="Stays loaded for this browser session. Re-upload on a new tab/device.",
-    )
-    if uploaded_sidebar:
-        load_resume(uploaded_sidebar)
-
-    with st.expander("✍️ Or paste plain text"):
-        sidebar_pasted = st.text_area(
-            "Paste resume text:",
-            height=180,
-            label_visibility="collapsed",
-            placeholder="Jafar Beldar\nSkills: Python, Gemini, Vector DBs...",
-            key="sidebar_pasted_area"
-        )
-        if st.button("💾 Save Text", use_container_width=True, key="sidebar_save_btn"):
-            if sidebar_pasted.strip():
-                st.session_state.resume_name   = "Pasted Text Resume"
-                st.session_state.resume_text   = sidebar_pasted.strip()
-                st.session_state.resume_image_bytes = None
-                st.session_state.resume_image_mime = None
-                st.session_state.email_session = None
-                st.session_state.emails        = []
-                st.session_state.saved_jd      = ""
-                st.toast("✅ Resume text saved!", icon="📝")
-                st.rerun()
-            else:
-                st.warning("Please paste text first.")
-
-    # Status badge
-    if st.session_state.resume_text or st.session_state.resume_image_bytes:
-        name = st.session_state.resume_name or "resume"
-        short = name[:28] + "…" if len(name) > 30 else name
-        st.markdown(
-            f'<div class="status-badge status-ok">✓ {short}</div>',
-            unsafe_allow_html=True,
-        )
-        if st.session_state.resume_text:
-            st.markdown(
-                f'<div style="font-size:0.7rem;color:#334155;">'
-                f'{len(st.session_state.resume_text):,} characters extracted</div>',
-                unsafe_allow_html=True,
-            )
-        else:
-            st.markdown(
-                f'<div style="font-size:0.7rem;color:#334155;">'
-                f'Image Resume loaded</div>',
-                unsafe_allow_html=True,
-            )
-    else:
-        st.markdown(
-            '<div class="status-badge status-err">✗ No resume loaded</div>',
-            unsafe_allow_html=True,
-        )
-
-    exp = calc_experience()
-    st.markdown(
-        f'<div style="margin-top:0.8rem"><div class="exp-chip">⏱ {exp} years experience</div></div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("---")
-
-    # Reset button (only visible when an email exists)
-    if st.session_state.emails:
-        if st.button("🔄  New Email (Reset)", use_container_width=True):
-            if st.session_state.email_session:
-                st.session_state.email_session.reset()
-            st.session_state.emails   = []
-            st.session_state.saved_jd = ""
+# Helper to process file content and update session state
+def load_resume(uploaded_file):
+    if uploaded_file is not None and uploaded_file.name != st.session_state.resume_name:
+        file_name = uploaded_file.name
+        file_ext = file_name.split(".")[-1].lower()
+        
+        # Reset existing resume values
+        st.session_state.resume_name   = file_name
+        st.session_state.resume_text   = None
+        st.session_state.resume_image_bytes = None
+        st.session_state.resume_image_mime = None
+        st.session_state.email_session = None   # reset Gemini session
+        st.session_state.emails        = []
+        st.session_state.saved_jd      = ""
+        
+        if file_ext == "pdf":
+            raw_bytes = uploaded_file.read()
+            with st.spinner("Reading PDF…"):
+                try:
+                    text = extract_pdf_text(raw_bytes)
+                    if not text.strip():
+                        st.error("No text found — is this a scanned image PDF?")
+                    else:
+                        st.session_state.resume_text = text
+                        st.toast("✅ Resume PDF loaded!", icon="📄")
+                        st.rerun()
+                except Exception as exc:
+                    st.error(f"PDF error: {exc}")
+        elif file_ext in ["png", "jpg", "jpeg"]:
+            st.session_state.resume_image_bytes = uploaded_file.read()
+            st.session_state.resume_image_mime = uploaded_file.type
+            st.toast("✅ Resume image loaded!", icon="📸")
             st.rerun()
-
-    st.markdown("""
-    <div style="margin-top:auto; padding-top:2rem;
-                font-size:0.63rem; color:#1e3a5f; text-align:center; line-height:1.6;">
-        Jafar Beldar · Job Email Composer<br>
-        Resume loaded per session · Emails not stored
-    </div>
-    """, unsafe_allow_html=True)
+        else:
+            st.error("Unsupported file format. Please upload a PDF or an Image.")
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -835,10 +718,62 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Gates
+# Gates (API Key verification inline)
 if not st.session_state.api_key:
-    st.info("👈  Enter your **Gemini API Key** in the sidebar to get started.")
-    st.stop()
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        try:
+            api_key = st.secrets.get("GEMINI_API_KEY", "")
+        except Exception:
+            pass
+    if not api_key:
+        st.warning("⚠️ Gemini API Key not found.")
+        typed_key = st.text_input(
+            "Enter Gemini API Key to proceed:",
+            type="password",
+            placeholder="AIza...",
+            key="api_key_manual"
+        )
+        if typed_key:
+            st.session_state.api_key = typed_key
+            st.rerun()
+        st.stop()
+    else:
+        st.session_state.api_key = api_key
+
+# ── Loaded Resume Header Row ──────────────────────────────────────────────────
+if st.session_state.resume_text or st.session_state.resume_image_bytes:
+    col_status, col_reset, col_change = st.columns([3, 1, 1])
+    with col_status:
+        name = st.session_state.resume_name or "resume"
+        short = name[:20] + "…" if len(name) > 22 else name
+        exp = calc_experience()
+        st.markdown(
+            f"<div style='display: flex; gap: 8px; align-items: center; margin-top: 0.15rem;'>"
+            f"<span class='status-badge status-ok' style='margin: 0;'>✓ {short}</span>"
+            f"<span class='exp-chip' style='margin: 0;'>⏱ {exp} experience</span>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
+    with col_reset:
+        if st.button("🔄 Reset Draft", use_container_width=True, help="Clear draft and start a new email"):
+            if st.session_state.email_session:
+                st.session_state.email_session.reset()
+            st.session_state.emails = []
+            st.session_state.saved_jd = ""
+            st.rerun()
+    with col_change:
+        if st.button("📄 Change Resume", use_container_width=True, help="Change/upload a different resume"):
+            st.session_state.resume_name = None
+            st.session_state.resume_text = None
+            st.session_state.resume_image_bytes = None
+            st.session_state.resume_image_mime = None
+            st.session_state.email_session = None
+            st.session_state.emails = []
+            st.session_state.saved_jd = ""
+            st.rerun()
+            
+    st.markdown("<hr style='margin: 1rem 0; border-color: rgba(30, 64, 175, 0.15);'>", unsafe_allow_html=True)
 
 if not st.session_state.resume_text and not st.session_state.resume_image_bytes:
     st.warning("⚠️ Please upload or paste your resume to get started.")
