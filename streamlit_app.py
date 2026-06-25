@@ -694,8 +694,39 @@ else:
 
 
 # ── Display generated email ────────────────────────────────────────────────────
+def make_clickable_html(line: str) -> str:
+    """Detects contact info in sign-off and returns them as HTML anchors."""
+    # 1. Email address
+    line = re.sub(
+        r"([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})",
+        r'<a href="mailto:\1" style="color: #38bdf8; text-decoration: underline;">\1</a>',
+        line
+    )
+    # 2. GitHub URL (with https://)
+    line = re.sub(
+        r"(https?://[^\s<>#\"'{}|\\^\[\]`]+)",
+        r'<a href="\1" target="_blank" style="color: #38bdf8; text-decoration: underline;">\1</a>',
+        line
+    )
+    # 3. LinkedIn link without protocol
+    if "LinkedIn:" in line and "href=" not in line:
+        line = re.sub(
+            r"(linkedin\.com/in/[^\s<>#\"'{}|\\^\[\]`]+)",
+            r'<a href="https://\1" target="_blank" style="color: #38bdf8; text-decoration: underline;">\1</a>',
+            line
+        )
+    # 4. Phone number
+    if "+91" in line and "href=" not in line:
+        match = re.search(r"(\+91\s*\d{10})", line)
+        if match:
+            num = match.group(1)
+            clean_num = num.replace(" ", "")
+            line = line.replace(num, f'<a href="tel:{clean_num}" style="color: #38bdf8; text-decoration: underline;">{num}</a>')
+    return line
+
+
 def render_email_html(raw: str) -> str:
-    """Wrap special lines in styled spans."""
+    """Wrap special lines in styled spans and make contact links clickable."""
     out = []
     for line in raw.split("\n"):
         if line.startswith("TO:"):
@@ -703,7 +734,8 @@ def render_email_html(raw: str) -> str:
         elif line.startswith("Subject:"):
             out.append(f'<span class="email-subject">{line}</span>')
         elif any(line.startswith(p) for p in SIGNOFF_PREFIXES):
-            out.append(f'<span class="email-signoff">{line}</span>')
+            clickable_line = make_clickable_html(line)
+            out.append(f'<span class="email-signoff">{clickable_line}</span>')
         else:
             out.append(line)
     return "\n".join(out)
