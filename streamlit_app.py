@@ -593,27 +593,47 @@ class EmailSession:
         self._new_chat()
         return True
 
-    def _send(self, message: str) -> str:
+    def _send(self, message, history_placeholder: str = None) -> str:
         while True:
             try:
                 response = self._chat.send_message(message)
                 text = response.text.strip()
                 self.last_used_model = self.current_model
-                self._history.append({"role": "user",  "parts": [{"text": message}]})
+                
+                # If history_placeholder is provided (like when sending images), save that instead of the raw list/part in history
+                user_text = history_placeholder if history_placeholder else message
+                
+                self._history.append({"role": "user",  "parts": [{"text": user_text}]})
                 self._history.append({"role": "model", "parts": [{"text": text}]})
                 return text
             except Exception as exc:
                 if not self._switch_model(exc):
                     raise
 
-    def compose(self, jd: str) -> str:
-        prompt = (
-            f"Here is my resume:\n\n```\n{self.resume_text}\n```\n\n"
-            f"Here is the job description:\n\n```\n{jd}\n```\n\n"
-            "Write the cold email now."
-        )
+    def compose(self, jd_text: str = None, jd_image_bytes: bytes = None, jd_image_mime: str = None) -> str:
+        prompt_parts = []
+        prompt_parts.append(f"Here is my resume:\n\n```\n{self.resume_text}\n```\n\n")
+        
+        history_desc = "Initial draft request. "
+        
+        if jd_text:
+            prompt_parts.append(f"Here is the job description text:\n\n```\n{jd_text}\n```\n\n")
+            history_desc += f"Job Description Text:\n{jd_text}"
+            
+        if jd_image_bytes:
+            prompt_parts.append("Here is the job description screenshot/image:")
+            image_part = types.Part.from_bytes(
+                data=jd_image_bytes,
+                mime_type=jd_image_mime
+            )
+            prompt_parts.append(image_part)
+            prompt_parts.append("\n\n")
+            history_desc += "[Job Description Image Uploaded]"
+            
+        prompt_parts.append("Analyze the job description and write the cold email now.")
+        
         self.jd_loaded = True
-        return self._send(prompt)
+        return self._send(prompt_parts, history_placeholder=history_desc)
 
     def refine(self, instruction: str) -> str:
         return self._send(instruction)
@@ -830,21 +850,39 @@ session: EmailSession = st.session_state.email_session
 # ── Job Description input ──────────────────────────────────────────────────────
 st.markdown('<div class="section-label">Job Description</div>', unsafe_allow_html=True)
 
-jd_value = st.session_state.saved_jd if st.session_state.emails else ""
-
-jd_input = st.text_area(
-    "jd_area",
-    value=jd_value,
-    height=210,
-    placeholder=(
-        "Paste the full job description here.\n"
-        "Include the recruiter's email if visible — it'll be auto-detected."
-    ),
-    label_visibility="collapsed",
-    disabled=bool(st.session_state.emails),
-)
-
 if not st.session_state.emails:
+    tab_jd_text, tab_jd_img = st.tabs(["📝 Paste JD Text", "📸 Upload JD Image"])
+    
+    jd_input = ""
+    jd_image_bytes = None
+    jd_image_mime = None
+    
+    with tab_jd_text:
+        jd_text = st.text_area(
+            "jd_text_area",
+            height=210,
+            placeholder=(
+                "Paste the full job description here.\n"
+                "Include the recruiter's email if visible — it'll be auto-detected."
+            ),
+            label_visibility="collapsed",
+            key="jd_text_field"
+        )
+        if jd_text.strip():
+            jd_input = jd_text.strip()
+            
+    with tab_jd_img:
+        uploaded_jd_img = st.file_uploader(
+            "Upload Job Description screenshot/image",
+            type=["png", "jpg", "jpeg"],
+            key="jd_image_field",
+            help="Upload a screenshot of the job description flyer, LinkedIn post, or WhatsApp image."
+        )
+        if uploaded_jd_img:
+            jd_image_bytes = uploaded_jd_img.read()
+            jd_image_mime = uploaded_jd_img.type
+            st.image(uploaded_jd_img, caption="Uploaded Job Description Screenshot", use_container_width=True)
+
     col_btn, col_tip = st.columns([1, 3])
     with col_btn:
         generate_clicked = st.button(
@@ -855,25 +893,44 @@ if not st.session_state.emails:
     with col_tip:
         st.markdown(
             "<p style='color:#334155;font-size:0.78rem;padding-top:0.55rem;'>"
-            "Tip: recruiter email in the JD is auto-extracted for you</p>",
+            "Tip: Gemini will read your screenshot directly to extract skills and contact details!</p>",
             unsafe_allow_html=True,
         )
 
     if generate_clicked:
-        if not jd_input.strip():
-            st.warning("Please paste a job description first.")
+        if not jd_input and not jd_image_bytes:
+            st.warning("Please paste a job description text or upload a screenshot first.")
         else:
             with st.spinner("Crafting your email with Gemini…"):
                 try:
-                    email_text = session.compose(jd_input)
+                    email_text = session.compose(
+                        jd_text=jd_input,
+                        jd_image_bytes=jd_image_bytes,
+                        jd_image_mime=jd_image_mime
+                    )
                     st.session_state.emails.append(("Initial draft", email_text))
-                    st.session_state.saved_jd = jd_input
+                    if jd_input:
+                        st.session_state.saved_jd = jd_input
+                    elif uploaded_jd_img:
+                        st.session_state.saved_jd = f"[JD Screenshot: {uploaded_jd_img.name}]"
                 except Exception as exc:
                     st.error(f"Gemini error: {exc}")
                     st.stop()
             st.rerun()
 
 else:
+    # JD is locked because email has been generated
+    saved_val = st.session_state.saved_jd
+    if saved_val.startswith("[JD Screenshot:"):
+        st.info(f"🔒 {saved_val} is locked for this session.")
+    else:
+        st.text_area(
+            "jd_locked_view",
+            value=saved_val,
+            height=150,
+            disabled=True,
+            label_visibility="collapsed"
+        )
     st.markdown(
         "<p style='color:#334155;font-size:0.75rem;margin-top:0.25rem;'>"
         "🔒 JD locked for this session. "
@@ -968,6 +1025,10 @@ if st.session_state.emails:
 
     # Extract recipient and WhatsApp from JD
     recipient_jd = extract_email_from_text(st.session_state.saved_jd) if st.session_state.saved_jd else None
+    # Fallback to recipient parsed from the email headers (crucial if only an image was uploaded)
+    if not recipient_jd and recipient:
+        recipient_jd = recipient
+
     whatsapp_jd = extract_whatsapp_number(st.session_state.saved_jd) if st.session_state.saved_jd else None
 
     # 1. Recipient Row
