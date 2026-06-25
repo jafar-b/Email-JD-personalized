@@ -1,0 +1,46 @@
+# ── Secrets & environment ──────────────────────────────────────────────────────
+.env                    # contains your GEMINI_API_KEY — NEVER commit this
+
+# ── Resume PDFs ────────────────────────────────────────────────────────────────
+*.pdf                   # personal document — keep off public repos
+
+# ── Streamlit local config ─────────────────────────────────────────────────────
+.streamlit/secrets.toml # local secrets file — use Streamlit Cloud secrets UI instead
+# Keep .streamlit/config.toml if you add theme/port settings (remove next line if so)
+.streamlit/
+
+# ── Python cache & bytecode ───────────────────────────────────────────────────
+__pycache__/
+*.py[cod]               # .pyc, .pyo, .pyd
+*.pyo
+*.pyd
+*$py.class
+
+# ── Virtual environment ───────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Build / packaging ─────────────────────────────────────────────────────────
+dist/
+build/
+*.egg-info/
+*.egg
+.eggs/
+*.whl
+
+# ── Testing & coverage ────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# ── IDE / OS files ────────────────────────────────────────────────────────────
+.DS_Store               # macOS
+Thumbs.db               # Windows
+desktop.ini
+.idea/
+.vscode/
+*.suo
+*.user
