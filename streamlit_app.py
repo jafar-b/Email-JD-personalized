@@ -563,9 +563,11 @@ def st_link_button(url: str, label: str):
 class EmailSession:
     """Manages a Gemini chat with automatic model fallback."""
 
-    def __init__(self, api_key: str, resume_text: str):
+    def __init__(self, api_key: str, resume_text: str = None, resume_image_bytes: bytes = None, resume_image_mime: str = None):
         self.client = genai.Client(api_key=api_key)
         self.resume_text = resume_text
+        self.resume_image_bytes = resume_image_bytes
+        self.resume_image_mime = resume_image_mime
         self.model_idx = 0
         self._history: list = []
         self.last_used_model = MODEL_CHAIN[0]
@@ -612,10 +614,23 @@ class EmailSession:
 
     def compose(self, jd_text: str = None, jd_image_bytes: bytes = None, jd_image_mime: str = None) -> str:
         prompt_parts = []
-        prompt_parts.append(f"Here is my resume:\n\n```\n{self.resume_text}\n```\n\n")
-        
         history_desc = "Initial draft request. "
         
+        # 1. Resume (either text or image)
+        if self.resume_text:
+            prompt_parts.append(f"Here is my resume:\n\n```\n{self.resume_text}\n```\n\n")
+            history_desc += "Resume: [Text] "
+        elif self.resume_image_bytes:
+            prompt_parts.append("Here is my resume image/screenshot:")
+            resume_part = types.Part.from_bytes(
+                data=self.resume_image_bytes,
+                mime_type=self.resume_image_mime
+            )
+            prompt_parts.append(resume_part)
+            prompt_parts.append("\n\n")
+            history_desc += "Resume: [Image] "
+            
+        # 2. Job Description (either text or image)
         if jd_text:
             prompt_parts.append(f"Here is the job description text:\n\n```\n{jd_text}\n```\n\n")
             history_desc += f"Job Description Text:\n{jd_text}"
@@ -647,12 +662,14 @@ class EmailSession:
 
 # ── Session state defaults ─────────────────────────────────────────────────────
 _DEFAULTS = {
-    "resume_name":    None,   # filename string
-    "resume_text":    None,   # extracted plain text
-    "email_session":  None,   # EmailSession object
-    "emails":         [],     # [(instruction_str, email_text)]
-    "saved_jd":       "",     # JD locked after first generation
-    "api_key":        "",
+    "resume_name":        None,   # filename string
+    "resume_text":        None,   # extracted plain text
+    "resume_image_bytes": None,   # image bytes if image resume
+    "resume_image_mime":  None,   # image mime if image resume
+    "email_session":      None,   # EmailSession object
+    "emails":             [],     # [(instruction_str, email_text)]
+    "saved_jd":           "",     # JD locked after first generation
+    "api_key":            "",
 }
 for _k, _v in _DEFAULTS.items():
     if _k not in st.session_state:
@@ -691,29 +708,45 @@ with st.sidebar:
     # Helper to process file content and update session state
     def load_resume(uploaded_file):
         if uploaded_file is not None and uploaded_file.name != st.session_state.resume_name:
-            raw_bytes = uploaded_file.read()
-            with st.spinner("Reading PDF…"):
-                try:
-                    text = extract_pdf_text(raw_bytes)
-                    if not text.strip():
-                        st.error("No text found — is this a scanned image PDF?")
-                    else:
-                        st.session_state.resume_name   = uploaded_file.name
-                        st.session_state.resume_text   = text
-                        st.session_state.email_session = None   # reset Gemini session
-                        st.session_state.emails        = []
-                        st.session_state.saved_jd      = ""
-                        st.toast("✅ Resume loaded!", icon="📄")
-                        st.rerun()
-                except Exception as exc:
-                    st.error(f"PDF error: {exc}")
+            file_name = uploaded_file.name
+            file_ext = file_name.split(".")[-1].lower()
+            
+            # Reset existing resume values
+            st.session_state.resume_name   = file_name
+            st.session_state.resume_text   = None
+            st.session_state.resume_image_bytes = None
+            st.session_state.resume_image_mime = None
+            st.session_state.email_session = None   # reset Gemini session
+            st.session_state.emails        = []
+            st.session_state.saved_jd      = ""
+            
+            if file_ext == "pdf":
+                raw_bytes = uploaded_file.read()
+                with st.spinner("Reading PDF…"):
+                    try:
+                        text = extract_pdf_text(raw_bytes)
+                        if not text.strip():
+                            st.error("No text found — is this a scanned image PDF?")
+                        else:
+                            st.session_state.resume_text = text
+                            st.toast("✅ Resume PDF loaded!", icon="📄")
+                            st.rerun()
+                    except Exception as exc:
+                        st.error(f"PDF error: {exc}")
+            elif file_ext in ["png", "jpg", "jpeg"]:
+                st.session_state.resume_image_bytes = uploaded_file.read()
+                st.session_state.resume_image_mime = uploaded_file.type
+                st.toast("✅ Resume image loaded!", icon="📸")
+                st.rerun()
+            else:
+                st.error("Unsupported file format. Please upload a PDF or an Image.")
 
     # ── Resume uploader ────────────────────────────────────────────────────────
-    st.markdown('<div class="sb-label">📄 Resume (PDF / Text)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sb-label">📄 Resume (PDF / Image / Text)</div>', unsafe_allow_html=True)
 
     uploaded_sidebar = st.file_uploader(
         "resume_upload_sb",
-        type=["pdf"],
+        type=["pdf", "png", "jpg", "jpeg"],
         label_visibility="collapsed",
         key="sidebar_uploader",
         help="Stays loaded for this browser session. Re-upload on a new tab/device.",
@@ -733,6 +766,8 @@ with st.sidebar:
             if sidebar_pasted.strip():
                 st.session_state.resume_name   = "Pasted Text Resume"
                 st.session_state.resume_text   = sidebar_pasted.strip()
+                st.session_state.resume_image_bytes = None
+                st.session_state.resume_image_mime = None
                 st.session_state.email_session = None
                 st.session_state.emails        = []
                 st.session_state.saved_jd      = ""
@@ -742,18 +777,25 @@ with st.sidebar:
                 st.warning("Please paste text first.")
 
     # Status badge
-    if st.session_state.resume_text:
-        name = st.session_state.resume_name or "resume.pdf"
+    if st.session_state.resume_text or st.session_state.resume_image_bytes:
+        name = st.session_state.resume_name or "resume"
         short = name[:28] + "…" if len(name) > 30 else name
         st.markdown(
             f'<div class="status-badge status-ok">✓ {short}</div>',
             unsafe_allow_html=True,
         )
-        st.markdown(
-            f'<div style="font-size:0.7rem;color:#334155;">'
-            f'{len(st.session_state.resume_text):,} characters extracted</div>',
-            unsafe_allow_html=True,
-        )
+        if st.session_state.resume_text:
+            st.markdown(
+                f'<div style="font-size:0.7rem;color:#334155;">'
+                f'{len(st.session_state.resume_text):,} characters extracted</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f'<div style="font-size:0.7rem;color:#334155;">'
+                f'Image Resume loaded</div>',
+                unsafe_allow_html=True,
+            )
     else:
         st.markdown(
             '<div class="status-badge status-err">✗ No resume loaded</div>',
@@ -798,15 +840,15 @@ if not st.session_state.api_key:
     st.info("👈  Enter your **Gemini API Key** in the sidebar to get started.")
     st.stop()
 
-if not st.session_state.resume_text:
+if not st.session_state.resume_text and not st.session_state.resume_image_bytes:
     st.warning("⚠️ Please upload or paste your resume to get started.")
     
-    tab_upload, tab_paste = st.tabs(["📁 Drag & Drop PDF", "📝 Paste Text Resume"])
+    tab_upload, tab_paste = st.tabs(["📁 Drag & Drop PDF / Image", "📝 Paste Text Resume"])
     
     with tab_upload:
         uploaded_main = st.file_uploader(
-            "Upload your resume PDF (drag & drop here)",
-            type=["pdf"],
+            "Upload your resume PDF or Image (drag & drop here)",
+            type=["pdf", "png", "jpg", "jpeg"],
             key="main_uploader",
             label_visibility="collapsed"
         )
@@ -825,6 +867,8 @@ if not st.session_state.resume_text:
             if main_pasted.strip():
                 st.session_state.resume_name   = "Pasted Text Resume"
                 st.session_state.resume_text   = main_pasted.strip()
+                st.session_state.resume_image_bytes = None
+                st.session_state.resume_image_mime = None
                 st.session_state.email_session = None
                 st.session_state.emails        = []
                 st.session_state.saved_jd      = ""
@@ -840,6 +884,8 @@ if st.session_state.email_session is None:
         st.session_state.email_session = EmailSession(
             api_key=st.session_state.api_key,
             resume_text=st.session_state.resume_text,
+            resume_image_bytes=st.session_state.resume_image_bytes,
+            resume_image_mime=st.session_state.resume_image_mime
         )
     except Exception as exc:
         st.error(f"Could not connect to Gemini: {exc}")
