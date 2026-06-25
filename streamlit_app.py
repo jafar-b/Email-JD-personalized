@@ -47,7 +47,11 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-*, html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
+/* Apply font safely to main wrapper without overriding icons */
+.stApp, .stApp p, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6, .stApp label, .stApp button {
+    font-family: 'Inter', sans-serif !important;
+}
+
 #MainMenu, footer, header { visibility: hidden; }
 
 .block-container {
@@ -57,7 +61,7 @@ st.markdown("""
 }
 
 /* ── Sidebar ── */
-[data-testid="stSidebar"] > div:first-child {
+[data-testid="stSidebar"] {
     background: linear-gradient(160deg, #06091a 0%, #0c1830 60%, #08122a 100%);
     border-right: 1px solid #1a2e50;
 }
