@@ -112,7 +112,7 @@ Your job is to write COLD JOB APPLICATION EMAILS. Follow these rules strictly:
    b. Subject line on its own line:
          Subject: <specific, punchy subject>
       Then one blank line.
-   c. Greeting line (e.g. "Hi Vishnu," or "Hello [Hiring Team],")
+   c. Greeting line (e.g. "Hi Vishnu," or "Hello Hiring Team,")
       Then one blank line.
    d. PARAGRAPH 1 - Hook (2-3 sentences):
       - State the specific role and company by name.
