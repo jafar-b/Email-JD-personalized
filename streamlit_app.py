@@ -756,7 +756,7 @@ if st.session_state.resume_text or st.session_state.resume_image_bytes:
             unsafe_allow_html=True
         )
     with col_reset:
-        if st.button("🔄 Reset Draft", use_container_width=True, help="Clear draft and start a new email"):
+        if st.button("🔄 Next Application", use_container_width=True, help="Clear draft and start a new email"):
             if st.session_state.email_session:
                 st.session_state.email_session.reset()
             st.session_state.emails = []
