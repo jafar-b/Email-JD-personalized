@@ -335,6 +335,44 @@ def extract_email_from_text(text: str) -> Optional[str]:
     return matches[0] if matches else None
 
 
+def extract_whatsapp_number(text: str) -> Optional[str]:
+    """Detects WhatsApp or general contact phone numbers inside a job description."""
+    # Pattern 1: WhatsApp links (wa.me/xxx)
+    wa_link = re.search(r"(?:wa\.me|whatsapp\.com/send\?phone=)(\d+)", text, re.IGNORECASE)
+    if wa_link:
+        return "+" + wa_link.group(1)
+        
+    # Pattern 2: Explicitly labeled WhatsApp contact
+    wa_match = re.search(r"(?:whatsapp|wa\.me|wa)\s*(?:us\s*at|at|number|:|-)?\s*(\+?\d{1,4}[-.\s]?\d{2,5}[-.\s]?\d{3,5}[-.\s]?\d{3,5})", text, re.IGNORECASE)
+    if wa_match:
+        num = wa_match.group(1).strip()
+        digits_only = re.sub(r"\D", "", num)
+        if 8 <= len(digits_only) <= 15:
+            if len(digits_only) == 10 and not num.startswith("+"):
+                return f"+91 {num}"
+            return num
+            
+    # Pattern 3: General phone contact keywords
+    phone_match = re.search(r"(?:contact|mobile|call|tel|phone)\s*(?::|-)?\s*(\+?\d{1,4}[-.\s]?\d{2,5}[-.\s]?\d{3,5}[-.\s]?\d{3,5})", text, re.IGNORECASE)
+    if phone_match:
+        num = phone_match.group(1).strip()
+        digits_only = re.sub(r"\D", "", num)
+        if 8 <= len(digits_only) <= 15:
+            if len(digits_only) == 10 and not num.startswith("+"):
+                return f"+91 {num}"
+            return num
+            
+    # Pattern 4: Any international format number (+91..., +971..., etc.)
+    any_intl = re.search(r"(\+\d{1,4}[-.\s]?\d{2,5}[-.\s]?\d{3,5}[-.\s]?\d{3,5})", text)
+    if any_intl:
+        num = any_intl.group(1).strip()
+        digits_only = re.sub(r"\D", "", num)
+        if 8 <= len(digits_only) <= 15:
+            return num
+
+    return None
+
+
 def make_gmail_friendly_html(raw: str) -> str:
     """Creates a rich-text HTML representation of the email for Gmail/Outlook."""
     # Convert newlines to breaks
@@ -888,22 +926,57 @@ if st.session_state.emails:
 
     st.markdown('<div class="section-label">Generated Email</div>', unsafe_allow_html=True)
 
+    # Extract recipient and WhatsApp from JD
+    recipient_jd = extract_email_from_text(st.session_state.saved_jd) if st.session_state.saved_jd else None
+    whatsapp_jd = extract_whatsapp_number(st.session_state.saved_jd) if st.session_state.saved_jd else None
+
     # 1. Recipient Row
-    if recipient:
-        col_recip, col_recip_copy = st.columns([2, 1])
-        with col_recip:
+    col_recip, col_recip_copy = st.columns([2, 1])
+    with col_recip:
+        if recipient_jd:
             st.markdown(
                 f"<div class='recipient-row' style='margin-top:0.4rem;'>"
                 f"📬 <b style='color:#34d399;'>Recipient:</b>&nbsp;"
                 f"<code style='background:#0c1830;padding:0.18rem 0.5rem;"
-                f"border-radius:4px;color:#34d399;font-size:0.82rem;'>{recipient}</code>"
+                f"border-radius:4px;color:#34d399;font-size:0.82rem;'>{recipient_jd}</code>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
-        with col_recip_copy:
-            st_copy_button(recipient, "Copy Recipient", "recipient_email")
+        else:
+            st.markdown(
+                f"<div class='recipient-row' style='margin-top:0.4rem; color: #475569; font-style: italic; font-size: 0.82rem;'>"
+                f"📬 Recipient: No email address found in JD"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+    with col_recip_copy:
+        if recipient_jd:
+            st_copy_button(recipient_jd, "Copy Recipient", "recipient_email")
 
-    # 2. Subject Row
+    # 2. WhatsApp/Phone Row
+    col_wa, col_wa_copy = st.columns([2, 1])
+    with col_wa:
+        if whatsapp_jd:
+            st.markdown(
+                f"<div class='recipient-row' style='margin-top:0.4rem;'>"
+                f"💬 <b style='color:#10b981;'>WhatsApp/Phone:</b>&nbsp;"
+                f"<code style='background:#0c1830;padding:0.18rem 0.5rem;"
+                f"border-radius:4px;color:#10b981;font-size:0.82rem;'>{whatsapp_jd}</code>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f"<div class='recipient-row' style='margin-top:0.4rem; color: #475569; font-style: italic; font-size: 0.82rem;'>"
+                f"💬 WhatsApp/Phone: No number found in JD"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+    with col_wa_copy:
+        if whatsapp_jd:
+            st_copy_button(whatsapp_jd, "Copy WhatsApp", "whatsapp_number")
+
+    # 3. Subject Row
     if subject:
         col_subj, col_subj_copy = st.columns([2, 1])
         with col_subj:
