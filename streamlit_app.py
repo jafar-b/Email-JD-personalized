@@ -53,7 +53,8 @@ st.markdown("""
     font-family: 'Inter', sans-serif !important;
 }
 
-#MainMenu, footer, header { visibility: hidden; }
+#MainMenu, footer { visibility: hidden; }
+header { background: transparent !important; }
 
 .block-container {
     padding-top: 1.8rem !important;
