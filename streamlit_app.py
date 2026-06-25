@@ -519,6 +519,45 @@ def st_copy_button(text_to_copy: str, label: str, key: str, html_to_copy: str = 
     components.html(html_code, height=30)
 
 
+def make_whatsapp_link(num: str) -> str:
+    """Formats a phone number into a direct click-to-chat WhatsApp link."""
+    digits = re.sub(r"\D", "", num)
+    # Default to India (+91) if it's a raw 10-digit number
+    if len(digits) == 10:
+        return f"https://wa.me/91{digits}"
+    elif len(digits) == 11 and digits.startswith("0"):
+        return f"https://wa.me/91{digits[1:]}"
+    else:
+        return f"https://wa.me/{digits}"
+
+
+def st_link_button(url: str, label: str):
+    """Generates a styled inline link button matching st_copy_button appearance."""
+    html_code = f"""
+    <div style="margin: 0; padding: 0; display: inline-block; vertical-align: middle;">
+        <a href="{url}" target="_blank" style="
+            background: linear-gradient(135deg, #10b981, #059669);
+            border: 1px solid rgba(52, 211, 153, 0.3);
+            border-radius: 6px;
+            color: white;
+            padding: 5px 10px;
+            font-family: 'Inter', sans-serif;
+            font-size: 11px;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            transition: all 0.2s ease;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        ">
+            <span style="font-size: 11px;">💬</span> {label}
+        </a>
+    </div>
+    """
+    components.html(html_code, height=30)
+
+
 # ── Gemini EmailSession ────────────────────────────────────────────────────────
 class EmailSession:
     """Manages a Gemini chat with automatic model fallback."""
@@ -974,7 +1013,8 @@ if st.session_state.emails:
             )
     with col_wa_copy:
         if whatsapp_jd:
-            st_copy_button(whatsapp_jd, "Copy WhatsApp", "whatsapp_number")
+            wa_link = make_whatsapp_link(whatsapp_jd)
+            st_link_button(wa_link, "Open WhatsApp")
 
     # 3. Subject Row
     if subject:
