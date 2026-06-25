@@ -806,6 +806,34 @@ else:
 
 
 # ── Display generated email ────────────────────────────────────────────────────
+def parse_generated_email(raw: str):
+    """Splits the raw generated email text into recipient, subject, and body components."""
+    lines = raw.split("\n")
+    to_email = None
+    subject = None
+    body_lines = []
+    
+    in_body = False
+    for line in lines:
+        stripped = line.strip()
+        if not in_body:
+            if stripped.startswith("TO:"):
+                to_email = stripped[3:].strip()
+                continue
+            elif stripped.startswith("Subject:"):
+                subject = stripped[8:].strip()
+                continue
+            elif stripped == "":
+                continue
+            else:
+                in_body = True
+        
+        if in_body:
+            body_lines.append(line)
+            
+    return to_email, subject, "\n".join(body_lines).strip()
+
+
 def make_clickable_html(line: str) -> str:
     """Detects contact info in sign-off and returns them as HTML anchors."""
     # 1. Email address
@@ -855,29 +883,13 @@ def render_email_html(raw: str) -> str:
 
 if st.session_state.emails:
     _, latest_email = st.session_state.emails[-1]
+    
+    # Parse email parts
+    recipient, subject, email_body = parse_generated_email(latest_email)
 
     st.markdown('<div class="section-label">Generated Email</div>', unsafe_allow_html=True)
 
-    # Layout model name and copy button in a single row
-    col_meta, col_copy = st.columns([2, 1])
-    with col_meta:
-        st.markdown(
-            f"<div style='margin-top: 0.15rem;'>"
-            f"<span style='color:#334155;font-size:0.72rem; vertical-align: middle;'>Model</span>"
-            f"<span class='model-tag'>{session.last_used_model}</span>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-    with col_copy:
-        gmail_html = make_gmail_friendly_html(latest_email)
-        st_copy_button(latest_email, "Copy Email", "email_text", html_to_copy=gmail_html)
-
-    # Email card
-    email_html = render_email_html(latest_email)
-    st.markdown(f'<div class="email-card">{email_html}</div>', unsafe_allow_html=True)
-
-    # Recipient highlight with its own copy button
-    recipient = extract_email_from_text(latest_email)
+    # 1. Recipient Row
     if recipient:
         col_recip, col_recip_copy = st.columns([2, 1])
         with col_recip:
@@ -890,13 +902,46 @@ if st.session_state.emails:
                 unsafe_allow_html=True,
             )
         with col_recip_copy:
-            st_copy_button(recipient, "Copy Email Address", "recipient_email")
+            st_copy_button(recipient, "Copy Recipient", "recipient_email")
+
+    # 2. Subject Row
+    if subject:
+        col_subj, col_subj_copy = st.columns([2, 1])
+        with col_subj:
+            st.markdown(
+                f"<div class='recipient-row' style='margin-top:0.4rem;'>"
+                f"📌 <b style='color:#38bdf8;'>Subject:</b>&nbsp;"
+                f"<code style='background:#0c1830;padding:0.18rem 0.5rem;"
+                f"border-radius:4px;color:#38bdf8;font-size:0.82rem;'>{subject}</code>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        with col_subj_copy:
+            st_copy_button(subject, "Copy Subject", "email_subject")
+
+    # 3. Model info & Copy Email Body Header
+    col_meta, col_copy = st.columns([2, 1])
+    with col_meta:
+        st.markdown(
+            f"<div style='margin-top: 0.15rem;'>"
+            f"<span style='color:#334155;font-size:0.72rem; vertical-align: middle;'>Model</span>"
+            f"<span class='model-tag'>{session.last_used_model}</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    with col_copy:
+        gmail_html = make_gmail_friendly_html(email_body)
+        st_copy_button(email_body, "Copy Email Body", "email_text", html_to_copy=gmail_html)
+
+    # Email card (renders only the body of the email)
+    email_html = render_email_html(email_body)
+    st.markdown(f'<div class="email-card">{email_html}</div>', unsafe_allow_html=True)
 
     # Copy section
     with st.expander("📋  Copy email text"):
         st.text_area(
             "copy_box",
-            value=latest_email,
+            value=email_body,
             height=220,
             label_visibility="collapsed",
             key="copy_area",
