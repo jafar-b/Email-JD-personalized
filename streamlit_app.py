@@ -336,10 +336,46 @@ def extract_email_from_text(text: str) -> Optional[str]:
     return matches[0] if matches else None
 
 
-def st_copy_button(text_to_copy: str, label: str, key: str):
+def make_gmail_friendly_html(raw: str) -> str:
+    """Creates a rich-text HTML representation of the email for Gmail/Outlook."""
+    # Convert newlines to breaks
+    html = raw.replace("\n", "<br>")
+    
+    # Apply linkification
+    # 1. Email address
+    html = re.sub(
+        r"([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})",
+        r'<a href="mailto:\1" style="color: #15c; text-decoration: underline;">\1</a>',
+        html
+    )
+    # 2. GitHub URL (with https://)
+    html = re.sub(
+        r"(https?://[^\s<>#\"'{}|\\^\[\]`]+)",
+        r'<a href="\1" target="_blank" style="color: #15c; text-decoration: underline;">\1</a>',
+        html
+    )
+    # 3. LinkedIn link without protocol
+    html = re.sub(
+        r"(?<!href=\")(?<!href=\"https://)(linkedin\.com/in/[^\s<>#\"'{}|\\^\[\]`]+)",
+        r'<a href="https://\1" target="_blank" style="color: #15c; text-decoration: underline;">\1</a>',
+        html
+    )
+    # 4. Phone number
+    def repl_phone(match):
+        num = match.group(1)
+        clean_num = num.replace(" ", "")
+        return f'<a href="tel:{clean_num}" style="color: #15c; text-decoration: underline;">{num}</a>'
+    
+    html = re.sub(r"(\+91\s*\d{10})", repl_phone, html)
+    
+    # Wrap in a standard sans-serif font container
+    return f'<div style="font-family: Arial, sans-serif; font-size: 14.5px; line-height: 1.65; color: #222222;">{html}</div>'
+
+
+def st_copy_button(text_to_copy: str, label: str, key: str, html_to_copy: str = None):
     """Generates a styled, functional inline copy-to-clipboard button using JS."""
     # Clean up formatting for JS string literal safety
-    escaped = (
+    escaped_text = (
         text_to_copy
         .replace("\\", "\\\\")
         .replace("'", "\\'")
@@ -348,6 +384,44 @@ def st_copy_button(text_to_copy: str, label: str, key: str):
         .replace("\r", "\\r")
     )
     
+    if html_to_copy:
+        escaped_html = (
+            html_to_copy
+            .replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace('"', '\\"')
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+        )
+        js_write = f"""
+        const text = "{escaped_text}";
+        const html = "{escaped_html}";
+        if (navigator.clipboard && navigator.clipboard.write) {{
+            const textBlob = new Blob([text], {{ type: 'text/plain' }});
+            const htmlBlob = new Blob([html], {{ type: 'text/html' }});
+            const item = new ClipboardItem({{
+                'text/plain': textBlob,
+                'text/html': htmlBlob
+            }});
+            navigator.clipboard.write([item])
+                .then(() => showSuccess())
+                .catch(() => fallbackCopy(text));
+        }} else {{
+            fallbackCopy(text);
+        }}
+        """
+    else:
+        js_write = f"""
+        const text = "{escaped_text}";
+        if (navigator.clipboard && navigator.clipboard.writeText) {{
+            navigator.clipboard.writeText(text)
+                .then(() => showSuccess())
+                .catch(() => fallbackCopy(text));
+        }} else {{
+            fallbackCopy(text);
+        }}
+        """
+
     html_code = f"""
     <div style="margin: 0; padding: 0; display: inline-block; vertical-align: middle;">
         <button id="btn-{key}" style="
@@ -372,14 +446,7 @@ def st_copy_button(text_to_copy: str, label: str, key: str):
     <script>
     const btn = document.getElementById('btn-{key}');
     btn.addEventListener('click', function() {{
-        const text = "{escaped}";
-        if (navigator.clipboard && navigator.clipboard.writeText) {{
-            navigator.clipboard.writeText(text)
-                .then(() => showSuccess())
-                .catch(() => fallbackCopy(text));
-        }} else {{
-            fallbackCopy(text);
-        }}
+        {js_write}
     }});
     
     function fallbackCopy(text) {{
@@ -545,7 +612,7 @@ with st.sidebar:
                     st.error(f"PDF error: {exc}")
 
     # ── Resume uploader ────────────────────────────────────────────────────────
-    st.markdown('<div class="sb-label">📄 Resume (PDF)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sb-label">📄 Resume (PDF / Text)</div>', unsafe_allow_html=True)
 
     uploaded_sidebar = st.file_uploader(
         "resume_upload_sb",
@@ -556,6 +623,26 @@ with st.sidebar:
     )
     if uploaded_sidebar:
         load_resume(uploaded_sidebar)
+
+    with st.expander("✍️ Or paste plain text"):
+        sidebar_pasted = st.text_area(
+            "Paste resume text:",
+            height=180,
+            label_visibility="collapsed",
+            placeholder="Jafar Beldar\nSkills: Python, Gemini, Vector DBs...",
+            key="sidebar_pasted_area"
+        )
+        if st.button("💾 Save Text", use_container_width=True, key="sidebar_save_btn"):
+            if sidebar_pasted.strip():
+                st.session_state.resume_name   = "Pasted Text Resume"
+                st.session_state.resume_text   = sidebar_pasted.strip()
+                st.session_state.email_session = None
+                st.session_state.emails        = []
+                st.session_state.saved_jd      = ""
+                st.toast("✅ Resume text saved!", icon="📝")
+                st.rerun()
+            else:
+                st.warning("Please paste text first.")
 
     # Status badge
     if st.session_state.resume_text:
@@ -615,14 +702,39 @@ if not st.session_state.api_key:
     st.stop()
 
 if not st.session_state.resume_text:
-    st.warning("⚠️ Please upload your resume PDF to get started.")
-    uploaded_main = st.file_uploader(
-        "Upload your resume PDF (drag & drop here)",
-        type=["pdf"],
-        key="main_uploader",
-    )
-    if uploaded_main:
-        load_resume(uploaded_main)
+    st.warning("⚠️ Please upload or paste your resume to get started.")
+    
+    tab_upload, tab_paste = st.tabs(["📁 Drag & Drop PDF", "📝 Paste Text Resume"])
+    
+    with tab_upload:
+        uploaded_main = st.file_uploader(
+            "Upload your resume PDF (drag & drop here)",
+            type=["pdf"],
+            key="main_uploader",
+            label_visibility="collapsed"
+        )
+        if uploaded_main:
+            load_resume(uploaded_main)
+            
+    with tab_paste:
+        main_pasted = st.text_area(
+            "Paste your plain text resume below:",
+            height=250,
+            placeholder="Jafar Beldar\nAI Engineer\nSkills: Python, Gemini, Vector DBs...",
+            label_visibility="collapsed",
+            key="main_pasted_area"
+        )
+        if st.button("💾 Save Resume Text", type="primary"):
+            if main_pasted.strip():
+                st.session_state.resume_name   = "Pasted Text Resume"
+                st.session_state.resume_text   = main_pasted.strip()
+                st.session_state.email_session = None
+                st.session_state.emails        = []
+                st.session_state.saved_jd      = ""
+                st.toast("✅ Resume text loaded!", icon="📝")
+                st.rerun()
+            else:
+                st.error("Please paste your resume text first.")
     st.stop()
 
 # Ensure Gemini session object exists
@@ -757,7 +869,8 @@ if st.session_state.emails:
             unsafe_allow_html=True,
         )
     with col_copy:
-        st_copy_button(latest_email, "Copy Email", "email_text")
+        gmail_html = make_gmail_friendly_html(latest_email)
+        st_copy_button(latest_email, "Copy Email", "email_text", html_to_copy=gmail_html)
 
     # Email card
     email_html = render_email_html(latest_email)
