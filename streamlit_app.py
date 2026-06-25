@@ -444,32 +444,38 @@ with st.sidebar:
             api_key = typed_key
     st.session_state.api_key = api_key
 
+    # Helper to process file content and update session state
+    def load_resume(uploaded_file):
+        if uploaded_file is not None and uploaded_file.name != st.session_state.resume_name:
+            raw_bytes = uploaded_file.read()
+            with st.spinner("Reading PDF…"):
+                try:
+                    text = extract_pdf_text(raw_bytes)
+                    if not text.strip():
+                        st.error("No text found — is this a scanned image PDF?")
+                    else:
+                        st.session_state.resume_name   = uploaded_file.name
+                        st.session_state.resume_text   = text
+                        st.session_state.email_session = None   # reset Gemini session
+                        st.session_state.emails        = []
+                        st.session_state.saved_jd      = ""
+                        st.toast("✅ Resume loaded!", icon="📄")
+                        st.rerun()
+                except Exception as exc:
+                    st.error(f"PDF error: {exc}")
+
     # ── Resume uploader ────────────────────────────────────────────────────────
     st.markdown('<div class="sb-label">📄 Resume (PDF)</div>', unsafe_allow_html=True)
 
-    uploaded = st.file_uploader(
-        "resume_upload",
+    uploaded_sidebar = st.file_uploader(
+        "resume_upload_sb",
         type=["pdf"],
         label_visibility="collapsed",
+        key="sidebar_uploader",
         help="Stays loaded for this browser session. Re-upload on a new tab/device.",
     )
-
-    if uploaded is not None and uploaded.name != st.session_state.resume_name:
-        raw_bytes = uploaded.read()
-        with st.spinner("Reading PDF…"):
-            try:
-                text = extract_pdf_text(raw_bytes)
-                if not text.strip():
-                    st.error("No text found — is this a scanned image PDF?")
-                else:
-                    st.session_state.resume_name   = uploaded.name
-                    st.session_state.resume_text   = text
-                    st.session_state.email_session = None   # reset Gemini session
-                    st.session_state.emails        = []
-                    st.session_state.saved_jd      = ""
-                    st.toast("✅ Resume loaded!", icon="📄")
-            except Exception as exc:
-                st.error(f"PDF error: {exc}")
+    if uploaded_sidebar:
+        load_resume(uploaded_sidebar)
 
     # Status badge
     if st.session_state.resume_text:
@@ -529,15 +535,14 @@ if not st.session_state.api_key:
     st.stop()
 
 if not st.session_state.resume_text:
-    st.info("👈  **Upload your resume PDF** in the sidebar to get started.")
-    st.markdown("""
-    <div class="empty-state">
-        <div class="icon">📄</div>
-        <div class="title">Upload your resume to get started</div>
-        <div class="hint">It stays loaded for your entire browser session —<br>
-        just re-upload when you open a new tab or visit from another device.</div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.warning("⚠️ Please upload your resume PDF to get started.")
+    uploaded_main = st.file_uploader(
+        "Upload your resume PDF (drag & drop here)",
+        type=["pdf"],
+        key="main_uploader",
+    )
+    if uploaded_main:
+        load_resume(uploaded_main)
     st.stop()
 
 # Ensure Gemini session object exists
