@@ -1,12 +1,39 @@
 # Job Application Email Composer
 
-A terminal-based tool that reads your **resume PDF** and a **job description**, then uses **Google Gemini** to write a short, humanized, personalized cold email you can send directly.
+A Streamlit AI web app that reads your resume and a job description, then uses **Google Gemini** to write a short, humanized, personalized cold email — no AI slop, no "I hope this message finds you well."
+
+**Live app:** https://email-jd-personalized.streamlit.app/
 
 ---
 
-## Setup
+## Features
 
-### 1. Install Python dependencies
+- Upload resume as **PDF or image** (PNG/JPG/JPEG) — or just paste plain text
+- Paste job description text **or upload a screenshot** — Gemini reads it directly
+- Auto-detects **recipient email** and **WhatsApp/phone number** from the JD
+- **One-click copy** for email body, subject line, and recipient address
+- **Gmail-friendly HTML copy** — pastes with formatting intact into Gmail/Outlook
+- **Conversational refinement** — just tell it what to change, it remembers context
+- **Version history** — every refinement is tracked
+- **Automatic model fallback** — tries the best Gemini model first, silently switches if rate-limited
+
+---
+
+## Model Chain
+
+The app always tries the best available model first and falls back automatically on errors or rate limits:
+
+```
+gemini-3.5-flash  →  gemini-3-flash  →  gemini-2.5-flash  →  gemini-2.5-flash-lite  →  gemini-3.1-flash-lite
+```
+
+No crashes, no quota drama.
+
+---
+
+## Setup (local)
+
+### 1. Install dependencies
 
 ```bash
 pip install -r requirements.txt
@@ -14,10 +41,7 @@ pip install -r requirements.txt
 
 ### 2. Set your Gemini API key
 
-**Windows (Command Prompt):**
-```cmd
-set GEMINI_API_KEY=your_api_key_here
-```
+Get a free key at: https://aistudio.google.com/app/apikey
 
 **Windows (PowerShell):**
 ```powershell
@@ -29,34 +53,58 @@ $env:GEMINI_API_KEY = "your_api_key_here"
 export GEMINI_API_KEY=your_api_key_here
 ```
 
-Get your free API key at: https://aistudio.google.com/app/apikey
+Or create a `.env` file in the project root:
+```
+GEMINI_API_KEY=your_api_key_here
+```
 
-### 3. Place your resume PDF
-
-Drop your resume PDF (any `.pdf` file) into this folder. The script will auto-detect it.
-
-### 4. Run
+### 3. Run
 
 ```bash
-python email_composer.py
+streamlit run streamlit_app.py
 ```
 
 ---
 
 ## How to use
 
-1. **Paste a job description** when prompted, then type `END` on a new line.
-2. The tool will **generate a draft email** and display the recipient email (if found in JD).
-3. **Refine naturally** � just type things like:
+1. **Enter your Gemini API key** when prompted (only needed if not set via env/secrets)
+2. **Upload your resume** — PDF, image, or paste text directly
+3. **Paste the job description** or upload a screenshot of it
+4. Click **Generate Email**
+5. **Refine conversationally** — type things like:
    - `shorten it more`
-   - `make it less formal`
-   - `punch up the subject line`
+   - `make it more casual`
    - `mention my FastAPI experience`
-4. The conversation **remembers context** � every refinement builds on the previous draft.
-5. Type `new` to start with a new job description, or `quit` to exit.
+   - `change the subject line`
+6. Click **Next Application** to start fresh for a new job
 
 ---
 
-## Model
+## Customization
 
-Uses `gemini-2.5-flash` by default � fast, cost-effective, and highly capable.
+The system prompt in `streamlit_app.py` (`build_system_prompt()`) is hardcoded for one user's background, tone, and contact details. To use this for yourself, update:
+
+- `CONTACT_BLOCK` — your name, phone, email, LinkedIn, GitHub
+- `build_system_prompt()` — your preferred tone, experience years logic, notice period, etc.
+
+---
+
+## CLI version
+
+A terminal-based version is also available:
+
+```bash
+python email_composer.py
+```
+
+Drop a `.pdf` resume in the project folder, run the script, paste a JD, type `END`. Same model chain, same fallback logic, no browser needed.
+
+---
+
+## Stack
+
+- **Python** + **Streamlit** (web UI)
+- **Google Gemini** via `google-genai` SDK (LLM)
+- **pdfplumber** (PDF text extraction)
+- **Regex** (email/WhatsApp detection)
