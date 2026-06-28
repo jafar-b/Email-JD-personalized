@@ -1,6 +1,6 @@
 # Job Application Email Composer
 
-A Streamlit AI web app that reads your resume and a job description, then uses **Google Gemini** to write a short, humanized, personalized cold email — no AI slop, no "I hope this message finds you well."
+A Streamlit AI web app that reads your resume and a job description, then uses **Google Gemini** to write a short, humanized, personalized cold email.  No AI slop, no "I hope this message finds you well."
 
 **Live app:** https://email-jd-personalized.streamlit.app/
 
