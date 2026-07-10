@@ -3,6 +3,7 @@
 
 # ── Resume PDFs ────────────────────────────────────────────────────────────────
 *.pdf                   # personal document — keep off public repos
+stored_resume/          # persistent local resume storage
 
 # ── Streamlit local config ─────────────────────────────────────────────────────
 .streamlit/secrets.toml # local secrets file — use Streamlit Cloud secrets UI instead

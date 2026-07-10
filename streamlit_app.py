@@ -6,8 +6,10 @@ Paste a job description → get a polished cold email → refine conversationall
 """
 
 import io
+import json
 import os
 import re
+import shutil
 from datetime import date
 from typing import Optional
 
@@ -658,23 +660,157 @@ class EmailSession:
         self.jd_loaded = False
 
 
+# ── Persistent Storage Helpers ───────────────────────────────────────────────
+STORED_RESUME_DIR = "stored_resume"
+METADATA_FILE = os.path.join(STORED_RESUME_DIR, "metadata.json")
+
+
+def save_stored_resume(file_name: str, file_type: str, content, mime_type: str = None):
+    """Saves the resume content and its metadata to the project directory."""
+    if not os.path.exists(STORED_RESUME_DIR):
+        os.makedirs(STORED_RESUME_DIR)
+        
+    # Delete any existing stored resume files to prevent clutter
+    if os.path.exists(STORED_RESUME_DIR):
+        for f in os.listdir(STORED_RESUME_DIR):
+            file_path = os.path.join(STORED_RESUME_DIR, f)
+            try:
+                if os.path.isfile(file_path):
+                    os.unlink(file_path)
+            except Exception:
+                pass
+
+    # Save metadata
+    metadata = {
+        "resume_name": file_name,
+        "resume_type": file_type,
+        "mime_type": mime_type
+    }
+    with open(METADATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2)
+
+    # Save content file
+    if file_type == "pdf":
+        dest_path = os.path.join(STORED_RESUME_DIR, "stored_resume.pdf")
+        with open(dest_path, "wb") as f:
+            f.write(content)
+        # Cache the extracted text to avoid pdfplumber overhead on startup
+        try:
+            text = extract_pdf_text(content)
+            if text.strip():
+                with open(os.path.join(STORED_RESUME_DIR, "extracted_text.txt"), "w", encoding="utf-8") as f:
+                    f.write(text)
+        except Exception:
+            pass
+    elif file_type == "image":
+        file_ext = file_name.split(".")[-1].lower()
+        dest_path = os.path.join(STORED_RESUME_DIR, f"stored_resume.{file_ext}")
+        with open(dest_path, "wb") as f:
+            f.write(content)
+    elif file_type == "text":
+        dest_path = os.path.join(STORED_RESUME_DIR, "stored_resume.txt")
+        if isinstance(content, str):
+            with open(dest_path, "w", encoding="utf-8") as f:
+                f.write(content)
+        else:
+            with open(dest_path, "wb") as f:
+                f.write(content)
+
+
+def init_stored_resume():
+    """Checks if a stored resume exists on disk and loads it into st.session_state."""
+    if os.path.exists(METADATA_FILE):
+        try:
+            with open(METADATA_FILE, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+            
+            resume_name = metadata.get("resume_name")
+            resume_type = metadata.get("resume_type")
+            mime_type = metadata.get("mime_type")
+            
+            if resume_type == "pdf":
+                txt_path = os.path.join(STORED_RESUME_DIR, "extracted_text.txt")
+                if os.path.exists(txt_path):
+                    with open(txt_path, "r", encoding="utf-8") as f:
+                        text = f.read()
+                else:
+                    pdf_path = os.path.join(STORED_RESUME_DIR, "stored_resume.pdf")
+                    if os.path.exists(pdf_path):
+                        with open(pdf_path, "rb") as f:
+                            raw_bytes = f.read()
+                        text = extract_pdf_text(raw_bytes)
+                        with open(txt_path, "w", encoding="utf-8") as f:
+                            f.write(text)
+                    else:
+                        return
+                
+                st.session_state.resume_name = resume_name
+                st.session_state.resume_text = text
+                
+            elif resume_type == "text":
+                txt_path = os.path.join(STORED_RESUME_DIR, "stored_resume.txt")
+                if os.path.exists(txt_path):
+                    with open(txt_path, "r", encoding="utf-8") as f:
+                        text = f.read()
+                    st.session_state.resume_name = resume_name
+                    st.session_state.resume_text = text
+                    
+            elif resume_type == "image":
+                file_ext = resume_name.split(".")[-1].lower()
+                img_path = os.path.join(STORED_RESUME_DIR, f"stored_resume.{file_ext}")
+                if os.path.exists(img_path):
+                    with open(img_path, "rb") as f:
+                        img_bytes = f.read()
+                    st.session_state.resume_name = resume_name
+                    st.session_state.resume_image_bytes = img_bytes
+                    st.session_state.resume_image_mime = mime_type
+        except Exception:
+            pass
+
+
+def clear_stored_resume():
+    """Deletes the stored resume files from disk and resets the session state."""
+    if os.path.exists(STORED_RESUME_DIR):
+        try:
+            shutil.rmtree(STORED_RESUME_DIR)
+        except Exception:
+            for f in os.listdir(STORED_RESUME_DIR):
+                try:
+                    os.unlink(os.path.join(STORED_RESUME_DIR, f))
+                except Exception:
+                    pass
+    
+    st.session_state.resume_name = None
+    st.session_state.resume_text = None
+    st.session_state.resume_image_bytes = None
+    st.session_state.resume_image_mime = None
+    st.session_state.email_session = None
+    st.session_state.emails = []
+    st.session_state.saved_jd = ""
+
+
 # ── Session state defaults ─────────────────────────────────────────────────────
 _DEFAULTS = {
-    "resume_name":        None,   # filename string
-    "resume_text":        None,   # extracted plain text
-    "resume_image_bytes": None,   # image bytes if image resume
-    "resume_image_mime":  None,   # image mime if image resume
-    "email_session":      None,   # EmailSession object
-    "emails":             [],     # [(instruction_str, email_text)]
-    "saved_jd":           "",     # JD locked after first generation
-    "api_key":            "",
+    "resume_name":          None,   # filename string
+    "resume_text":          None,   # extracted plain text
+    "resume_image_bytes":   None,   # image bytes if image resume
+    "resume_image_mime":    None,   # image mime if image resume
+    "email_session":        None,   # EmailSession object
+    "emails":               [],     # [(instruction_str, email_text)]
+    "saved_jd":             "",     # JD locked after first generation
+    "api_key":              "",
+    "stored_resume_loaded": False,  # Tracks if we attempted to load from storage
 }
 for _k, _v in _DEFAULTS.items():
     if _k not in st.session_state:
         st.session_state[_k] = _v
 
+# Load stored resume from disk if session state is empty and we haven't loaded it yet
+if st.session_state.resume_name is None and not st.session_state.stored_resume_loaded:
+    init_stored_resume()
+    st.session_state.stored_resume_loaded = True
 
-# Helper to process file content and update session state
+
 def load_resume(uploaded_file):
     if uploaded_file is not None and uploaded_file.name != st.session_state.resume_name:
         file_name = uploaded_file.name
@@ -689,8 +825,9 @@ def load_resume(uploaded_file):
         st.session_state.emails        = []
         st.session_state.saved_jd      = ""
         
+        raw_bytes = uploaded_file.read()
+        
         if file_ext == "pdf":
-            raw_bytes = uploaded_file.read()
             with st.spinner("Reading PDF…"):
                 try:
                     text = extract_pdf_text(raw_bytes)
@@ -698,14 +835,16 @@ def load_resume(uploaded_file):
                         st.error("No text found — is this a scanned image PDF?")
                     else:
                         st.session_state.resume_text = text
-                        st.toast("✅ Resume PDF loaded!", icon="📄")
+                        save_stored_resume(file_name, "pdf", raw_bytes)
+                        st.toast("✅ Resume PDF loaded & stored in project!", icon="📄")
                         st.rerun()
                 except Exception as exc:
                     st.error(f"PDF error: {exc}")
         elif file_ext in ["png", "jpg", "jpeg"]:
-            st.session_state.resume_image_bytes = uploaded_file.read()
+            st.session_state.resume_image_bytes = raw_bytes
             st.session_state.resume_image_mime = uploaded_file.type
-            st.toast("✅ Resume image loaded!", icon="📸")
+            save_stored_resume(file_name, "image", raw_bytes, mime_type=uploaded_file.type)
+            st.toast("✅ Resume image loaded & stored in project!", icon="📸")
             st.rerun()
         else:
             st.error("Unsupported file format. Please upload a PDF or an Image.")
@@ -743,7 +882,7 @@ if not st.session_state.api_key:
 
 # ── Loaded Resume Header Row ──────────────────────────────────────────────────
 if st.session_state.resume_text or st.session_state.resume_image_bytes:
-    col_status, col_reset, col_change = st.columns([3, 1, 1])
+    col_status, col_reset, col_change, col_delete = st.columns([2.5, 1.2, 1.2, 0.6])
     with col_status:
         name = st.session_state.resume_name or "resume"
         short = name[:20] + "…" if len(name) > 22 else name
@@ -771,6 +910,11 @@ if st.session_state.resume_text or st.session_state.resume_image_bytes:
             st.session_state.email_session = None
             st.session_state.emails = []
             st.session_state.saved_jd = ""
+            st.rerun()
+    with col_delete:
+        if st.button("🗑️", use_container_width=True, help="Permanently delete stored resume from project"):
+            clear_stored_resume()
+            st.toast("🗑️ Stored resume deleted from project!", icon="🗑️")
             st.rerun()
             
     st.markdown("<hr style='margin: 1rem 0; border-color: rgba(30, 64, 175, 0.15);'>", unsafe_allow_html=True)
@@ -807,7 +951,8 @@ if not st.session_state.resume_text and not st.session_state.resume_image_bytes:
                 st.session_state.email_session = None
                 st.session_state.emails        = []
                 st.session_state.saved_jd      = ""
-                st.toast("✅ Resume text loaded!", icon="📝")
+                save_stored_resume("Pasted Text Resume", "text", main_pasted.strip())
+                st.toast("✅ Resume text loaded & stored in project!", icon="📝")
                 st.rerun()
             else:
                 st.error("Please paste your resume text first.")
